@@ -51,6 +51,13 @@ int start1(char *arg)
     disableInterrupts();
 
     // Initialize the mail box table, slots, & other data structures.
+    // TODO: doesn't this need to be alocated dynamically?
+    mailbox mboxTable[MAXMBOX];
+
+    for (int i = 0; i < MAXMBOX; i++) {
+      // Initialize values to NULL (or -1)
+    }
+
     // Initialize USLOSS_IntVec and system call handlers,
     // allocate mailboxes for interrupt handlers.  Etc... 
 
@@ -75,13 +82,14 @@ int start1(char *arg)
    Parameters - maximum number of slots in the mailbox and the max size of a msg
                 sent to the mailbox.
    Returns - -1 to indicate that no mailbox was created, or a value >= 0 as the
-             mailbox id.
+                mailbox id.
    Side Effects - initializes one element of the mail box array. 
    ----------------------------------------------------------------------- */
 int MboxCreate(int slots, int slot_size)
 {
+    int ID = getNextID();
+    mboxTable[]
 } /* MboxCreate */
-
 
 /* ------------------------------------------------------------------------
    Name - MboxSend

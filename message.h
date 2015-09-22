@@ -7,12 +7,14 @@ typedef struct mboxProc *mboxProcPtr;
 
 struct mailbox {
     int       mboxID;
+    slotPtr   firstSlot;        // Head of linked list of slots
     // other items as needed...
 };
 
 struct mailSlot {
     int       mboxID;
     int       status;
+    slotPtr   nextSlot;         // .next() of linked list of slots
     // other items as needed...
 };
 
