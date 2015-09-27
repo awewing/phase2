@@ -71,7 +71,9 @@ int start1(char *arg)
     }
 
     // Initialize USLOSS_IntVec and system call handlers,
+    USLOSS_IntVec[USLOSS_ALARM_INT] = alarmHandler;
     USLOSS_IntVec[USLOSS_DISK_INT] = diskHandler;
+    USLOSS_IntVec[USLOSS_TERM_INT] = terminalHandler;
 
     // allocate mailboxes for interrupt handlers.  Etc... 
 
@@ -148,3 +150,15 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 {
 } /* MboxReceive */
+
+static void alarmHandler(int dev, void *arg) {
+
+}
+
+static void diskHandler(int dev, void *arg) {
+
+}
+
+static void terminalHandler(int dev, void *arg) {
+
+}
