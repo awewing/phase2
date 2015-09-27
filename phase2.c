@@ -23,6 +23,8 @@ void static terminalHandler(int dev, void *args);
 
 int debugflag2 = 0;
 
+int idCount = -1;
+
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
 mailSlot MailSlots[MAXSLOTS];
@@ -101,8 +103,25 @@ int start1(char *arg)
 int MboxCreate(int slots, int slot_size)
 {
     int ID = getNextID();
-    mboxTable[]
+
+
 } /* MboxCreate */
+
+/* ------------------------------------------------------------------------
+   Name - getNextID
+   Purpose - get next mailbox id
+   returns - mbox id
+   ----------------------------------------------------------------------- */
+int getNextID() {
+    idCount++;
+    if (idCount > MAXMBOX) {
+      idCount = 0;
+    }
+    while (MailBoxTable[idCount] != NULL) {
+        idCount++;
+    }
+    return idCount;
+} /* getNextID */
 
 /* ------------------------------------------------------------------------
    Name - MboxSend
