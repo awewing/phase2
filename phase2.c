@@ -25,6 +25,7 @@ int idCount = -1;
 
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
+int numBoxes = 10;
 
 // also need array of mail slots, array of function ptrs to system call 
 // handlers, ...
@@ -54,14 +55,16 @@ int start1(char *arg)
     disableInterrupts();
 
     // Initialize the mail box table, slots, & other data structures.
-
     for (int i = 0; i < MAXMBOX; i++) {
-      // Initialize values to NULL (or -1)
+        MailBoxTable[i].mboxID = -1;
+        MailBoxTable[i].numSlots = -1;
+        MailBoxTable[i].headPtr = NULL;
     }
 
     // Initialize USLOSS_IntVec and system call handlers,
     // allocate mailboxes for interrupt handlers.  Etc... 
 
+    // all done creating stuff, re enable interrupts
     enableInterrupts();
 
     // Create a process for start2, then block on a join until start2 quits
