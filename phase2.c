@@ -15,7 +15,7 @@
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
-
+void static diskHandler(int dev, void *args);
 
 /* -------------------------- Globals ------------------------------------- */
 
@@ -23,6 +23,7 @@ int debugflag2 = 0;
 
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
+mailSlot MailSlots[MAXSLOTS];
 int numBoxes = 10;
 
 // also need array of mail slots, array of function ptrs to system call 
@@ -59,7 +60,15 @@ int start1(char *arg)
         MailBoxTable[i].headPtr = NULL;
     }
 
+    for (int i = 0; i < MAXSLOTS; i++) {
+        mailSlots[i].mboxID = -1;
+        mailSlots[i].status = -1;
+        mailSlots[i].nextSlot = NULL;
+    }
+
     // Initialize USLOSS_IntVec and system call handlers,
+    USLOSS_IntVec[USLOSS_DISK_INT] = diskHandler;
+
     // allocate mailboxes for interrupt handlers.  Etc... 
 
     // all done creating stuff, re enable interrupts
