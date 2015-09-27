@@ -45,6 +45,7 @@ int start1(char *arg)
     if (DEBUG2 && debugflag2)
         USLOSS_Console("start1(): at beginning\n");
 
+    // check we are in kernel
     check_kernel_mode("start1");
 
     // Disable interrupts
