@@ -21,6 +21,8 @@ extern int start2 (char *);
 
 int debugflag2 = 0;
 
+int idCount = -1;
+
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
 
@@ -52,8 +54,6 @@ int start1(char *arg)
     disableInterrupts();
 
     // Initialize the mail box table, slots, & other data structures.
-    // TODO: doesn't this need to be alocated dynamically?
-    mailbox mboxTable[MAXMBOX];
 
     for (int i = 0; i < MAXMBOX; i++) {
       // Initialize values to NULL (or -1)
@@ -91,6 +91,17 @@ int MboxCreate(int slots, int slot_size)
     int ID = getNextID();
     mboxTable[]
 } /* MboxCreate */
+
+int getNextID() {
+    idCount++;
+    if (idCount > MAXMBOX) {
+      idCount = 0;
+    }
+    while (MailBoxTable[idCount] != NULL) {
+        idCount++;
+    }
+    return idCount;
+}
 
 /* ------------------------------------------------------------------------
    Name - MboxSend
