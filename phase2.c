@@ -92,9 +92,15 @@ int start1(char *arg)
 int MboxCreate(int slots, int slot_size)
 {
     int ID = getNextID();
-    mboxTable[]
+
+
 } /* MboxCreate */
 
+/* ------------------------------------------------------------------------
+   Name - getNextID
+   Purpose - get next mailbox id
+   returns - mbox id
+   ----------------------------------------------------------------------- */
 int getNextID() {
     idCount++;
     if (idCount > MAXMBOX) {
@@ -104,7 +110,7 @@ int getNextID() {
         idCount++;
     }
     return idCount;
-}
+} /* getNextID */
 
 /* ------------------------------------------------------------------------
    Name - MboxSend
