@@ -15,7 +15,9 @@
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
+void static alarmHandler(int dev, void *args);
 void static diskHandler(int dev, void *args);
+void static terminalHandler(int dev, void *args);
 
 /* -------------------------- Globals ------------------------------------- */
 
