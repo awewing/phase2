@@ -8,7 +8,10 @@ typedef struct mboxProc *mboxProcPtr;
 struct mailbox {
     int       mboxID;
     int       numSlots;
+    int       numFullSlots;
+    int       slotSize;
     slotPtr   headPtr;
+    int       blockStatus;
     // other items as needed...
 };
 
@@ -16,6 +19,8 @@ struct mailSlot {
     int       mboxID;
     int       status;
     slotPtr   nextSlot;
+    char      *message;
+
     // other items as needed...
 };
 
@@ -31,3 +36,8 @@ union psrValues {
     struct psrBits bits;
     unsigned int integerPart;
 };
+
+// for mailbox.blockStatus
+#define NOT_BLOCKED 0
+#define RECEIVE_BLOCKED 1
+#define SEND_BLOCKED 2

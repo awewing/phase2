@@ -24,6 +24,7 @@ void static terminalHandler(int dev, void *args);
 int debugflag2 = 0;
 
 int idCount = -1;
+int slotCount = 0;
 
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
@@ -104,23 +105,52 @@ int start1(char *arg)
    ----------------------------------------------------------------------- */
 int MboxCreate(int slots, int slot_size)
 {
+    // find an id
     int ID = getNextID();
 
+    // no open mailboxes
+    if (ID == -1)
+      return -1;
 
+    // initialize Values
+    mailbox *mbox = &(MailBoxTable[ID]);
+    mbox->mboxID = ID;
+    mbox->numSlots = slots;
+    mbox->numFullSlots = 0;
+    mbox->headPtr = NULL;
+    mbox->slotSize = slot_size;
+    mbox->blockStatus = NOT_BLOCKED;
+
+    return ID;
 } /* MboxCreate */
 
 /* ------------------------------------------------------------------------
    Name - getNextID
    Purpose - get next mailbox id
-   returns - mbox id
+   returns - mbox id or -1 if none are open.
    ----------------------------------------------------------------------- */
 int getNextID() {
+    
     idCount++;
+    int initialCount = idCount;
+
     if (idCount > MAXMBOX) {
       idCount = 0;
     }
+
+    // while we are pointing to an already initialized mailbox
     while (MailBoxTable[idCount] != NULL) {
         idCount++;
+
+        // if (we check every slot and none were open)
+        if (idCount == initialCount) {
+          retrun -1;
+        }
+
+        // wrap arround if at end.
+        if (idCount > MAXMBOX) {
+          idCount = 0;
+        }
     }
     return idCount;
 } /* getNextID */
@@ -135,8 +165,25 @@ int getNextID() {
    ----------------------------------------------------------------------- */
 int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 {
+    mailbox *mbox = &(MailBoxTable[mbox_id]);
+    
+    if (msg_size > mbox->slotSize) {
+        return -1;
+    }
+
+
 } /* MboxSend */
 
+
+/* ------------------------------------------------------------------------
+   Name - getNextOpenSlot
+   Purpose - find next open mail slot
+   Parameters - none
+   Returns - the address to the next open mail slot
+   ----------------------------------------------------------------------- */
+mailSlot *getNextOpenSlot() {
+
+} /* mailSlot */
 
 /* ------------------------------------------------------------------------
    Name - MboxReceive
@@ -149,6 +196,11 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
    ----------------------------------------------------------------------- */
 int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 {
+    mailbox *mbox = &(MailBoxTable[mbox_id]);
+
+    if (msg_size > mbox->slotSize) {
+      
+    }
 } /* MboxReceive */
 
 static void alarmHandler(int dev, void *arg) {
