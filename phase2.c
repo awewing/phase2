@@ -1,10 +1,10 @@
-/* ------------------------------------------------------------------------
+/*------------------------------------------------------------------------
    phase2.c
 
    University of Arizona
    Computer Science 452
 
-   ------------------------------------------------------------------------ */
+  ------------------------------------------------------------------------ */
 
 #include <phase1.h>
 #include <phase2.h>
@@ -31,7 +31,7 @@ void check_kernel_mode(char* name);
 int debugflag2 = 0;
 
 int numBoxes = 0;
-int nextFreeBox = 1;
+int nextFreeBox = 0;
 
 int numSlots = 0;
 int nextFreeSlot = 0;
@@ -39,14 +39,12 @@ int nextFreeSlot = 0;
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
 mailSlot MailSlots[MAXSLOTS];
+mailbox clockBox;
 mailbox termBoxes[TERMBOXMAX];
 mailbox diskBoxes[DISKBOXMAX];
 
 // also need array of mail slots, array of function ptrs to system call 
 // handlers, ...
-
-
-
 
 /* -------------------------- Functions ----------------------------------- */
 
@@ -90,6 +88,8 @@ int start1(char *arg)
     USLOSS_IntVec[USLOSS_TERM_INT] = terminalHandler;
 
     // allocate mailboxes for interrupt handlers.  Etc... 
+    clockBox = MailBoxTable[MboxCreate(0, 0)];
+
     for (int i = 0; i < TERMBOXMAX; i++) {
         termBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
     }
@@ -218,7 +218,6 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 
     return 0;
 } /* MboxSend */
-
 
 /* ------------------------------------------------------------------------
    Name - getNextOpenSlot
