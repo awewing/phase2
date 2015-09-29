@@ -30,14 +30,17 @@ void check_kernel_mode(char* name);
 
 int debugflag2 = 0;
 
-int idCount = -1;
+int numBoxes = 0;
+int nextFreeBox = 1;
+
+int numSlots = 0;
+int nextFreeSlot = 0;
 
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
 mailSlot MailSlots[MAXSLOTS];
-int numBoxes = 10;
-int numSlots = 0;
-mailbox interruptBox;
+mailbox termBoxes[TERMBOXMAX];
+mailbox diskBoxes[DISKBOXMAX];
 
 // also need array of mail slots, array of function ptrs to system call 
 // handlers, ...
@@ -87,7 +90,13 @@ int start1(char *arg)
     USLOSS_IntVec[USLOSS_TERM_INT] = terminalHandler;
 
     // allocate mailboxes for interrupt handlers.  Etc... 
-    interruptBox = MailBoxTable[MboxCreate(0, 0)];
+    for (int i = 0; i < TERMBOXMAX; i++) {
+        termBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
+    }
+
+    for (int i = 0; i < DISKBOXMAX; i++) {
+        diskBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
+    }
 
     // all done creating stuff, re enable interrupts
     enableInterrupts();
@@ -150,28 +159,32 @@ int MBoxRelease(int mailboxID) {
    returns - mbox id or -1 if none are open.
    ----------------------------------------------------------------------- */
 int getNextID() {
-    idCount++;
-    int initialCount = idCount;
+    int initial = nextFreeBox;
 
-    if (idCount > MAXMBOX) {
-      idCount = 0;
+    // check for number of boxes in use
+    if (numBoxes >= MAXMBOX) {
+        return -1;
     }
 
-    // while we are pointing to an already initialized mailbox
-    while (MailBoxTable[idCount].mboxID != -1) {
-        idCount++;
+    // go through all the boxes until you find a free one
+    while (MailBoxTable[nextFreeBox].mboxID != -1) {
+        nextFreeBox++;
 
-        // if (we check every slot and none were open)
-        if (idCount == initialCount) {
-          return -1;
+        // if you get to the final box, reset
+        if (nextFreeBox == MAXMBOX) {
+            nextFreeBox = 0;
         }
 
-        // wrap arround if at end.
-        if (idCount > MAXMBOX) {
-          idCount = 0;
+        // if you loop all the way around quit
+        if (nextFreeBox == initial) {
+            return -1;
         }
     }
-    return idCount;
+
+    // inc numboxes
+    numBoxes++;
+
+    return nextFreeBox;
 } /* getNextID */
 
 /* ------------------------------------------------------------------------
