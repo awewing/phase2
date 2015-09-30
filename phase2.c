@@ -43,6 +43,7 @@ mailbox clockBox;
 mailbox termBoxes[TERMBOXMAX];
 mailbox diskBoxes[DISKBOXMAX];
 
+int clockTicks = 0;
 // also need array of mail slots, array of function ptrs to system call 
 // handlers, ...
 
@@ -253,7 +254,13 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 } /* MboxReceive */
 
 static void clockHandler(int dev, void *arg) {
+    timeslice();
 
+    clockTicks++;
+
+    if (clockTicks % 5 == 0) {
+        MBoxCondSend(clockBox->mboxID, NULL, 0);
+    }
 }
 
 static void diskHandler(int dev, void *arg) {
