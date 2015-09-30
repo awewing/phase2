@@ -11,6 +11,7 @@ struct mailbox {
     int       numFullSlots;
     int       slotSize;
     slotPtr   headPtr;
+    slotPtr   endPtr;
     int       blockStatus;
     // other items as needed...
 };
@@ -19,7 +20,7 @@ struct mailSlot {
     int       mboxID;
     int       status;
     slotPtr   nextSlot;
-    char      *message;
+    void      *message;
 
     // other items as needed...
 };

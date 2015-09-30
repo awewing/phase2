@@ -74,6 +74,7 @@ int start1(char *arg)
         MailBoxTable[i].numSlots = -1;
         MailBoxTable[i].slotSize = -1;
         MailBoxTable[i].headPtr = NULL;
+        MailBoxTable[i].endPtr = NULL;
         MailBoxTable[i].blockStatus = 1;
     }
 
@@ -81,6 +82,7 @@ int start1(char *arg)
         MailSlots[i].mboxID = -1;
         MailSlots[i].status = -1;
         MailSlots[i].nextSlot = NULL;
+        MailSlots[i].message = NULL;
     }
 
     // Initialize USLOSS_IntVec and system call handlers,
@@ -217,6 +219,26 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     numSlots++;
     slotPtr slot = &MailSlots[getNextSlot()];
 
+    // assign the slot to a mailbox
+    // check if this is the first slot in the mailbox, if so set this slot as the first slot in the box
+    if (mbox->headPtr == NULL) {
+        mbox->headPtr = slot;
+    }
+    // otherwise adjust who the old endptr's next is
+    else {
+        mbox->endPtr->nextSlot = slot;
+    }
+
+    // set the box's endptr to this new slot and inc the mailbox's size
+    mbox->endPtr = slot;
+    mbox->numSlots++;
+
+    // put info in the slot
+    slot->mboxID = mbox_id;
+    slot->status = 1;
+    slot->nextSlot = NULL;
+    memcpy(slot->message, msg_ptr, msg_size);
+
     return 0;
 } /* MboxSend */
 
@@ -253,13 +275,18 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     return 0;
 } /* MboxReceive */
 
+
+int MboxCondSend(int mailboxID, void *message, int message_size) {
+    return 0;
+}
+
 static void clockHandler(int dev, void *arg) {
-    timeslice();
+    timeSlice();
 
     clockTicks++;
 
     if (clockTicks % 5 == 0) {
-        MBoxCondSend(clockBox->mboxID, NULL, 0);
+        MboxCondSend(clockBox.mboxID, NULL, 0);
     }
 }
 
