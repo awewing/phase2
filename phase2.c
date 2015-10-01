@@ -184,7 +184,37 @@ int MBoxRelease(int mailboxID) {
         return -1;
     }
 
-    // unblock all processes waiting on 
+    // null out the removed mailbox
+    MailBoxTable[mailboxID].mboxID = -1;
+    MailBoxTable[mailboxID].numSlots = -1;
+    MailBoxTable[mailboxID].numSlotsUsed = -1;
+    MailBoxTable[mailboxID].slotSize = -1;
+    MailBoxTable[mailboxID].headPtr = NULL;
+    MailBoxTable[mailboxID].endPtr = NULL;
+    MailBoxTable[mailboxID].blockStatus = 1;
+
+    // unblock all processes blocked on this mailbox
+    for (int i = 0; i < MAXPROC; i++) {
+        // find all processes blocked on said mailbox
+        if (processTable[i].mboxID == mailBoxID) {
+            // zap those processes and unblock them
+            zap(procTable[i].pid);
+            unblockProc(procTable[i].pid);
+
+            // remove their info from the procTable
+            processTable[i].pid = -1;
+            processTable[i].blockStatus = NOT_BLOCKED;
+            processTable[i].message = NULL;
+            processTable[i].size = -1;
+            processTable[i].mboxID = -1;
+            processTable[i].timeAdded = -1;
+        }
+    }
+
+    // check if zapped
+    if (isZapped()) {
+        return -3;
+    }
 
     return 0;
 }
