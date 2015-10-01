@@ -33,7 +33,7 @@ int blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size);
 process *findFirstBlocked(mailbox *mbox, int status);
 /* -------------------------- Globals ------------------------------------- */
 
-int debugflag2 = 0;
+int debugflag2 = 1;
 
 int numBoxes = 0;
 int nextFreeBox = 0;
@@ -196,15 +196,15 @@ int MBoxRelease(int mailboxID) {
     // unblock all processes blocked on this mailbox
     for (int i = 0; i < MAXPROC; i++) {
         // find all processes blocked on said mailbox
-        if (processTable[i].mboxID == mailBoxID) {
+        if (processTable[i].mboxID == mailboxID) {
             // zap those processes and unblock them
-            zap(procTable[i].pid);
-            unblockProc(procTable[i].pid);
+            zap(processTable[i].pid);
+            unblockProc(processTable[i].pid);
 
             // remove their info from the procTable
             processTable[i].pid = -1;
             processTable[i].blockStatus = NOT_BLOCKED;
-            processTable[i].message = NULL;
+            processTable[i].message[0] = '\0';
             processTable[i].size = -1;
             processTable[i].mboxID = -1;
             processTable[i].timeAdded = -1;
@@ -272,6 +272,9 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     }
     else {
         // No open slots, block sender
+        if (DEBUG2 && debugflag2) {
+            USLOSS_Console("MboxSend(): todo: block the sender");
+        }
         // TODO:
         for (int i = 0; i < MAXPROC; i++) {
 
@@ -315,6 +318,10 @@ void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
     slot->nextSlot = NULL;
     memcpy(slot->message , msg_ptr, msg_size);
     slot->size = msg_size;
+
+    if (DEBUG2 && debugflag2) {
+        USLOSS_Console("sendToSlot() :headPtr: %s endPtr: %s\n", mbox->headPtr->message, mbox->endPtr->message);
+    }
 
     // increment numSlotsUsed
     mbox->numSlotsUsed++;
@@ -394,13 +401,18 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     }
     else {
         // get message
+        if (DEBUG2 && debugflag2) {
+            USLOSS_Console("MboxReceive: getting message from slot\n");
+        }
         slotPtr slot = mbox->headPtr;
         memcpy(msg_ptr, slot->message, msg_size);
         int returnSize = slot->size;
 
         // free the slot
         mbox->numSlotsUsed--;
-        removeSlot(mbox->mboxID);
+        mbox->headPtr = mbox->headPtr->nextSlot;
+
+        // removeSlot(mbox->mboxID);
 
         // check for blocked senders
         if (mbox->blockStatus == SEND_BLOCKED){
@@ -475,6 +487,7 @@ process *findFirstBlocked(mailbox *mbox, int status) {
 
     process *currProc;
     process *earliestBlocked = NULL;
+    int element = 0;
 
     for (int i = 0; i < MAXPROC; i++) {
         currProc = &processTable[i];
@@ -482,18 +495,20 @@ process *findFirstBlocked(mailbox *mbox, int status) {
         if (currProc->mboxID == mbox->mboxID && currProc->blockStatus == status) {
             if (earliestBlocked == NULL) {
                 earliestBlocked = currProc;
+                element = i;
             }
             else {
                 //find which has been waiting longer
                 if (earliestBlocked->timeAdded > currProc->timeAdded) {
                     earliestBlocked = currProc;
+                    element = i;
                 }
             }
         }
     }
 
     if (DEBUG2 && debugflag2) {
-        USLOSS_Console("findFirstBlocked: out of loop, returning\n");
+        USLOSS_Console("findFirstBlocked: at element %d, out of loop, returning\n", element);
     }
 
     return earliestBlocked;
