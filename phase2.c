@@ -29,7 +29,7 @@ static void disableInterrupts();
 void check_kernel_mode(char* name);
 void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size);
-void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size);
+void blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size);
 process *findFirstBlocked(mailbox *mbox, int status);
 /* -------------------------- Globals ------------------------------------- */
 
@@ -96,8 +96,9 @@ int start1(char *arg)
     for (int i = 0; i < MAXPROC; i++) {
         processTable[i].pid = -1;
         processTable[i].blockStatus = NOT_BLOCKED;
-        processTable[i].message = NULL;
+        // processTable[i].message = NULL;
         processTable[i].size = -1;
+        processTable[i].mboxID = -1;
         processTable[i].timeAdded = -1;
     }
 
@@ -223,7 +224,6 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     }
 
     // figure out what to do & use helper functions
-    // TODO: case for 0 slot mailbox?
     if (mbox->numSlots > mbox->numSlotsUsed) {
         if (mbox->blockStatus == RECEIVE_BLOCKED) {
             // there are processes blocked on receive
@@ -232,19 +232,20 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
         else {
             // Simply add message to the mailbox
             sendToSlot(mbox, msg_ptr, msg_size);
-
         }
     }
     else {
         // No open slots, block sender
         // TODO:
+        for (int i = 0; i < MAXPROC; i++) {
+
+        }
 
     }
 
     //blockMe(SENDBLOCK);
 
     enableInterrupts();
-
     return 0;
 } /* MboxSend */
 
@@ -319,11 +320,6 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
         return -1;
     }
 
-    // check for messages
-    while (mbox->endPtr == NULL) {
-        blockMe(RECEIVEBLOCK);
-    }
-
     // no longer blocked
     // checked to make sure process wasn't zapped
     if (isZapped()) {
@@ -337,7 +333,15 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 
     // Different receive cases
     if (mbox->numSlotsUsed == 0) {
-        receiveFromBlock(mbox, msg_ptr, msg_size);
+        mbox->blockStatus = RECEIVE_BLOCKED;
+        blockReceiver(mbox, msg_ptr, msg_size);
+        
+        // no longer blocked
+        // checked to make sure process wasn't zapped
+        if (isZapped()) {
+            return -3;
+        }
+
         return msg_size;
     }
     else {
@@ -366,7 +370,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
  * Helper func for receive
  *  - puts proc info on ptable and blocks
  */
-void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size) {
+void blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size) {
     process *newEntry;
     for (int i = 0; i < MAXPROC; i++) {
         if (processTable[i].pid == -1) {
@@ -381,7 +385,7 @@ void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size) {
 
     newEntry->pid = getpid();
     newEntry->blockStatus = RECEIVE_BLOCKED;
-    newEntry->message = &(msg_ptr);
+    memcpy(newEntry->message, msg_ptr, msg_size);
     newEntry->size = msg_size;
     newEntry->mboxID = mbox->mboxID;
     newEntry->timeAdded = USLOSS_Clock();
