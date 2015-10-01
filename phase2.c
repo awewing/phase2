@@ -29,6 +29,8 @@ static void disableInterrupts();
 void check_kernel_mode(char* name);
 void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size);
+void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size);
+process *findFirstBlocked(mailbox *mbox, int status);
 /* -------------------------- Globals ------------------------------------- */
 
 int debugflag2 = 0;
@@ -235,6 +237,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     }
     else {
         // No open slots, block sender
+        // TODO:
 
     }
 
@@ -268,7 +271,6 @@ void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
 
     // set the box's endptr to this new slot and inc the mailbox's size
     mbox->endPtr = slot;
-    mbox->numSlots++;
 
     // put info in the slot
     slot->mboxID = mbox->mboxID;
@@ -276,6 +278,9 @@ void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
     slot->nextSlot = NULL;
     memcpy(slot->message , msg_ptr, msg_size);
     slot->size = msg_size;
+
+    // increment numSlotsUsed
+    mbox->numSlotsUsed++;
 }
 
 /*
@@ -283,25 +288,7 @@ void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
  *  - give message to a proc blocked on receive
  */
 void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size) {
-    // iterate through procTable, keeping track of proc that has waited the longest
-    process *currProc;
-    process *earliestBlocked = NULL;
-
-    for (int i = 0; i < MAXPROC; i++) {
-        currProc = &processTable[i];
-        
-        if (currProc->mboxID == mbox->mboxID && currProc->blockStatus == RECEIVE_BLOCKED) {
-            if (earliestBlocked == NULL) {
-                earliestBlocked = currProc;
-            }
-            else {
-                //find which has been waiting longer
-                if (earliestBlocked->timeAdded > currProc->timeAdded) {
-                    earliestBlocked = currProc;
-                }
-            }
-        }
-    }
+    process *earliestBlocked = findFirstBlocked(mbox, RECEIVE_BLOCKED);
 
     // Put msg into a place that the other process can reach.
     memcpy(earliestBlocked->message, msg_ptr, msg_size);
@@ -343,27 +330,100 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
         return -3;
     }
 
-    // check to make mailbox still exists
+    // check to make sure mailbox still exists
     if (mbox->mboxID == -1) {
         return -3;
     }
 
-    // get the slot of the message
-    slotPtr slot = mbox->endPtr;
+    // Different receive cases
+    if (mbox->numSlotsUsed == 0) {
+        receiveFromBlock(mbox, msg_ptr, msg_size);
+        return msg_size;
+    }
+    else {
+        // get message
+        slotPtr slot = mbox->headPtr;
+        memcpy(msg_ptr, slot->message, msg_size);
+        int returnSize = slot->size;
 
-    // copy the message into the provided location
-    memcpy(msg_ptr, slot->message, msg_size);
+        // free the slot
+        mbox->numSlotsUsed--;
+        removeSlot(mbox->mboxID);
 
-    // remove the slot from use
-    mbox->numSlotsUsed--;
-    //removeSlot(mbox->mboxID);
+        // check for blocked senders
+        if (mbox->blockStatus == SEND_BLOCKED){
+            process *blockedProc = findFirstBlocked(mbox, SEND_BLOCKED);
+            unblockProc(blockedProc->pid);
+            // after this sender will put its message into an open slot
+        }
 
-    return slot->size;
+        return returnSize;
+    }
+
 } /* MboxReceive */
 
+/*
+ * Helper func for receive
+ *  - puts proc info on ptable and blocks
+ */
+void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size) {
+    process *newEntry;
+    for (int i = 0; i < MAXPROC; i++) {
+        if (processTable[i].pid == -1) {
+            newEntry = &processTable[i];
+        }
+    }
+
+    if (newEntry == NULL) {
+        // there are more than 50 procs in table, impossible, check removal of procs
+        USLOSS_Halt(1);
+    }
+
+    newEntry->pid = getpid();
+    newEntry->blockStatus = RECEIVE_BLOCKED;
+    newEntry->message = &(msg_ptr);
+    newEntry->size = msg_size;
+    newEntry->mboxID = mbox->mboxID;
+    newEntry->timeAdded = USLOSS_Clock();
+    blockMe(RECEIVEBLOCK);
+}
 
 int MboxCondSend(int mailboxID, void *message, int message_size) {
     return 0;
+}
+
+
+/* ------------------------------------------------------------------------
+   Name - findFirstBlocked
+   Purpose - unblock the process that has been waiting the longest
+                for sending, unblock process RECEIVE_BLOCKED and for
+                receiving, unblock process SEND_BLOCKED
+   Parameters - mbox, and status
+                status will be whether we are unblocking a RECEIVE_BLOCKED
+                process or a SEND_BLOCKED process
+   Returns - void
+   ----------------------------------------------------------------------- */
+process *findFirstBlocked(mailbox *mbox, int status) {
+    process *currProc;
+    process *earliestBlocked;
+
+    for (int i = 0; i < MAXPROC; i++) {
+        currProc = &processTable[i];
+        
+        if (currProc->mboxID == mbox->mboxID && currProc->blockStatus == status) {
+            if (earliestBlocked == NULL) {
+                earliestBlocked = currProc;
+            }
+            else {
+                //find which has been waiting longer
+                if (earliestBlocked->timeAdded > currProc->timeAdded) {
+                    earliestBlocked = currProc;
+                }
+            }
+        }
+    }
+
+    return earliestBlocked;
 }
 
 /* ------------------------------------------------------------------------

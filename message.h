@@ -29,7 +29,7 @@ struct mailSlot {
 struct process {
     int       pid;
     int       blockStatus;
-    void      * message;
+    void      ** message;
     int       size;
     int       mboxID;
     int       timeAdded;     // determines this process's 'spot in the line'
