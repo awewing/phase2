@@ -161,6 +161,16 @@ int MboxCreate(int slots, int slot_size)
 int MBoxRelease(int mailboxID) {
     check_kernel_mode("MboxRelease");
 
+    // get the mailbox
+    mailbox *mbox = &(MailBoxTable[mbox_id]);
+
+    // check to make sure the mail box is in use
+    if (mbox->mboxid == -1) {
+        return -1;
+    }
+
+    // unblock all processes waiting on 
+
     return 0;
 }
 
