@@ -14,6 +14,12 @@
 #define MAXSLOTS        2500
 #define MAX_MESSAGE     150  /* largest possible message in a single slot */
 
+#define TERMBOXMAX      4
+#define DISKBOXMAX      2
+
+#define SENDBLOCK       11
+#define RECEIVEBLOCK    12
+
 /* returns id of mailbox, or -1 if no more mailboxes, -2 if invalid args */
 extern int MboxCreate(int slots, int slot_size);
 

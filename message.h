@@ -2,13 +2,13 @@
 
 typedef struct mailSlot *slotPtr;
 typedef struct mailbox   mailbox;
-typedef struct mailSlot   mailSlot;
+typedef struct mailSlot  mailSlot;
 typedef struct mboxProc *mboxProcPtr;
 
 struct mailbox {
     int       mboxID;
     int       numSlots;
-    int       numFullSlots;
+    int       numSlotsUsed;
     int       slotSize;
     slotPtr   headPtr;
     slotPtr   endPtr;
@@ -20,8 +20,8 @@ struct mailSlot {
     int       mboxID;
     int       status;
     slotPtr   nextSlot;
-    void      *message;
-
+    char      message[MAX_MESSAGE];
+    int       size;
     // other items as needed...
 };
 
