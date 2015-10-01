@@ -18,8 +18,12 @@
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
+
+void block(int mboxID, int block);
+void unblock(int mboxID, int block);
 int getNextID();
 int getSlot();
+void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void removeSlot(int mboxID);
 void static clockHandler(int dev, void *args);
 void static diskHandler(int dev, void *args);
@@ -27,18 +31,12 @@ void static terminalHandler(int dev, void *args);
 static void enableInterrupts();
 static void disableInterrupts();
 void check_kernel_mode(char* name);
-void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
-void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size);
-void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size);
-process *findFirstBlocked(mailbox *mbox, int status);
 /* -------------------------- Globals ------------------------------------- */
 
 int debugflag2 = 0;
 
 int numBoxes = 0;
 int nextFreeBox = 0;
-
-int numSlots = 0;
 
 // the mail boxes 
 mailbox MailBoxTable[MAXMBOX];
@@ -96,7 +94,7 @@ int start1(char *arg)
     for (int i = 0; i < MAXPROC; i++) {
         processTable[i].pid = -1;
         processTable[i].blockStatus = NOT_BLOCKED;
-        processTable[i].message = NULL;
+        processTable[i].message[0] = '\0';
         processTable[i].size = -1;
         processTable[i].mboxID = -1;
         processTable[i].timeAdded = -1;
@@ -152,13 +150,13 @@ int MboxCreate(int slots, int slot_size)
     int ID = getNextID();
 
     // check slot_size isn't too big
-    if (slot_size > MAXSLOTS) {
+    if (slot_size > MAX_MESSAGE) {
         return -1;
     }
 
     // no open mailboxes
     if (ID == -1) {
-      return -1;
+        return -1;
     }
 
     // initialize Values
@@ -173,7 +171,7 @@ int MboxCreate(int slots, int slot_size)
     return ID;
 } /* MboxCreate */
 
-int MBoxRelease(int mailboxID) {
+int MboxRelease(int mailboxID) {
     check_kernel_mode("MboxRelease");
 
     // get the mailbox
@@ -184,6 +182,41 @@ int MBoxRelease(int mailboxID) {
         return -1;
     }
 
+    // unblock all processes blocked on this mailbox
+    for (int i = 0; i < MAXPROC; i++) {
+        // find all processes blocked on said mailbox
+        if (processTable[i].mboxID == mailboxID) {
+            // zap those processes and unblock them
+            zap(processTable[i].pid);
+            unblockProc(processTable[i].pid);
+
+            // remove their info from the procTable
+            processTable[i].pid = -1;
+            processTable[i].blockStatus = NOT_BLOCKED;
+            processTable[i].message[0] = '\0';
+            processTable[i].size = -1;
+            processTable[i].mboxID = -1;
+            processTable[i].timeAdded = -1;
+        }
+    }
+
+    // null out all slots used by the mailbox
+    slotPtr pre = NULL;
+    slotPtr slot = mbox->headPtr;
+    while (slot != NULL) {
+        slot->mboxID = -1;
+        slot->status = -1;
+        slot->message[0] = '\0';
+        slot->size = -1;
+
+        if (pre != NULL) {
+            pre->nextSlot = NULL;
+        }
+
+        pre = slot;
+        slot = slot->nextSlot;
+    }
+
     // null out the removed mailbox
     MailBoxTable[mailboxID].mboxID = -1;
     MailBoxTable[mailboxID].numSlots = -1;
@@ -192,24 +225,6 @@ int MBoxRelease(int mailboxID) {
     MailBoxTable[mailboxID].headPtr = NULL;
     MailBoxTable[mailboxID].endPtr = NULL;
     MailBoxTable[mailboxID].blockStatus = 1;
-
-    // unblock all processes blocked on this mailbox
-    for (int i = 0; i < MAXPROC; i++) {
-        // find all processes blocked on said mailbox
-        if (processTable[i].mboxID == mailBoxID) {
-            // zap those processes and unblock them
-            zap(procTable[i].pid);
-            unblockProc(procTable[i].pid);
-
-            // remove their info from the procTable
-            processTable[i].pid = -1;
-            processTable[i].blockStatus = NOT_BLOCKED;
-            processTable[i].message = NULL;
-            processTable[i].size = -1;
-            processTable[i].mboxID = -1;
-            processTable[i].timeAdded = -1;
-        }
-    }
 
     // check if zapped
     if (isZapped()) {
@@ -243,91 +258,38 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
         return -1;
     }
 
-    // checked to make sure process wasn't zapped
-    if (isZapped()) {
-        return -3;
+    // check for 0-slot mbox
+    if (mbox->numSlots == 0) {
+        unblock(mbox->mboxID, RECEIVEBLOCK);
+        
+        enableInterrupts();
+        return 0;
     }
 
-    // check to make mailbox still exists
-    if (mbox->mboxID == -1) {
-        return -3;
-    }
-
-    // figure out what to do & use helper functions
-    // TODO: case for 0 slot mailbox?
-    if (mbox->numSlots > mbox->numSlotsUsed) {
-        if (mbox->blockStatus == RECEIVE_BLOCKED) {
-            // there are processes blocked on receive
-            sendToBlocked(mbox, msg_ptr, msg_size);
+    // check if no free slots 
+    if (mbox->numSlots == mbox->numSlotsUsed) {
+        block(mbox->mboxID, SENDBLOCK);
+    
+        // checked to make sure process wasn't zapped
+        if (isZapped()) {
+            return -3;
         }
-        else {
-            // Simply add message to the mailbox
-            sendToSlot(mbox, msg_ptr, msg_size);
 
+        // check to make mailbox still exists
+        if (mbox->mboxID == -1) {
+            return -3;
         }
     }
-    else {
-        // No open slots, block sender
-        // TODO:
 
-    }
-
-    //blockMe(SENDBLOCK);
+    // write to that slot
+    sendToSlot(mbox, msg_ptr, msg_size);
+    
+    // unblock people waiting on this mailbox
+    unblock(mbox->mboxID, RECEIVEBLOCK);
 
     enableInterrupts();
-
     return 0;
 } /* MboxSend */
-
-/*
- * Helper function for send
- *  - put message in a slot
- */
-void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
-{
-    // allowed to send a message
-    // get the slot to put a message in
-    mbox->numSlotsUsed++;
-    slotPtr slot = &MailSlots[getSlot()];
-
-    // assign the slot to a mailbox
-    // check if this is the first slot in the mailbox, if so set this slot as the first slot in the box
-    if (mbox->headPtr == NULL) {
-        mbox->headPtr = slot;
-    }
-    // otherwise adjust who the old endptr's next is
-    else {
-        mbox->endPtr->nextSlot = slot;
-    }
-
-    // set the box's endptr to this new slot and inc the mailbox's size
-    mbox->endPtr = slot;
-
-    // put info in the slot
-    slot->mboxID = mbox->mboxID;
-    slot->status = 1;
-    slot->nextSlot = NULL;
-    memcpy(slot->message , msg_ptr, msg_size);
-    slot->size = msg_size;
-
-    // increment numSlotsUsed
-    mbox->numSlotsUsed++;
-}
-
-/*
- * Helper function for send
- *  - give message to a proc blocked on receive
- */
-void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size) {
-    process *earliestBlocked = findFirstBlocked(mbox, RECEIVE_BLOCKED);
-
-    // Put msg into a place that the other process can reach.
-    memcpy(earliestBlocked->message, msg_ptr, msg_size);
-
-    // Unblock the process
-    earliestBlocked->blockStatus = NOT_BLOCKED;
-    unblockProc(earliestBlocked->pid);
-}
 
 /* ------------------------------------------------------------------------
    Name - MboxReceive
@@ -341,6 +303,7 @@ void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size) {
 int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 {
     check_kernel_mode("MboxReceive");
+    disableInterrupts();
 
     // get the mailbox
     mailbox *mbox = &(MailBoxTable[mbox_id]);
@@ -350,111 +313,103 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
         return -1;
     }
 
-    // check for messages
-    while (mbox->endPtr == NULL) {
-        blockMe(RECEIVEBLOCK);
+    // check for zero slot
+    if (mbox->numSlots == 0) {
+        block(mbox_id, RECEIVEBLOCK);
+
+        enableInterrupts();
+        return 0;
     }
 
-    // no longer blocked
-    // checked to make sure process wasn't zapped
-    if (isZapped()) {
-        return -3;
-    }
-
-    // check to make sure mailbox still exists
-    if (mbox->mboxID == -1) {
-        return -3;
-    }
-
-    // Different receive cases
+    // check if no messages
     if (mbox->numSlotsUsed == 0) {
-        receiveFromBlock(mbox, msg_ptr, msg_size);
-        return msg_size;
-    }
-    else {
-        // get message
-        slotPtr slot = mbox->headPtr;
-        memcpy(msg_ptr, slot->message, msg_size);
-        int returnSize = slot->size;
-
-        // free the slot
-        mbox->numSlotsUsed--;
-        removeSlot(mbox->mboxID);
-
-        // check for blocked senders
-        if (mbox->blockStatus == SEND_BLOCKED){
-            process *blockedProc = findFirstBlocked(mbox, SEND_BLOCKED);
-            unblockProc(blockedProc->pid);
-            // after this sender will put its message into an open slot
+        block(mbox_id, RECEIVEBLOCK);
+    
+        // no longer blocked
+        // checked to make sure process wasn't zapped
+        if (isZapped()) {
+            return -3;
         }
 
-        return returnSize;
+        // check to make sure mailbox still exists
+        if (mbox->mboxID == -1) {
+            return -3;
+        }
     }
 
+    // get the size of the message to save for later
+    int size = mbox->headPtr->size;
+
+    // copy information from slot to msg_ptr and remove that slot
+    memcpy(msg_ptr, mbox->headPtr->message, msg_size);
+    removeSlot(mbox_id);
+
+    // unblock send blocked people
+    unblock(mbox_id, SENDBLOCK);
+
+    enableInterrupts();
+    return size; 
 } /* MboxReceive */
-
-/*
- * Helper func for receive
- *  - puts proc info on ptable and blocks
- */
-void receiveFromBlock(mailbox *mbox, void *msg_ptr, int msg_size) {
-    process *newEntry;
-    for (int i = 0; i < MAXPROC; i++) {
-        if (processTable[i].pid == -1) {
-            newEntry = &processTable[i];
-        }
-    }
-
-    if (newEntry == NULL) {
-        // there are more than 50 procs in table, impossible, check removal of procs
-        USLOSS_Halt(1);
-    }
-
-    newEntry->pid = getpid();
-    newEntry->blockStatus = RECEIVE_BLOCKED;
-    newEntry->message = &(msg_ptr);
-    newEntry->size = msg_size;
-    newEntry->mboxID = mbox->mboxID;
-    newEntry->timeAdded = USLOSS_Clock();
-    blockMe(RECEIVEBLOCK);
-}
 
 int MboxCondSend(int mailboxID, void *message, int message_size) {
     return 0;
 }
 
+void block(int mboxID, int block) {
+    // get the correct process from the process table
+    process *proc = &processTable[getpid() % 50];
 
-/* ------------------------------------------------------------------------
-   Name - findFirstBlocked
-   Purpose - unblock the process that has been waiting the longest
-                for sending, unblock process RECEIVE_BLOCKED and for
-                receiving, unblock process SEND_BLOCKED
-   Parameters - mbox, and status
-                status will be whether we are unblocking a RECEIVE_BLOCKED
-                process or a SEND_BLOCKED process
-   Returns - void
-   ----------------------------------------------------------------------- */
-process *findFirstBlocked(mailbox *mbox, int status) {
-    process *currProc;
-    process *earliestBlocked;
+    // add info to that process
+    proc->pid = getpid();
+    proc->blockStatus = block;
+    proc->mboxID = mboxID;
+    proc->timeAdded = USLOSS_Clock();
 
+    // actually block
+    blockMe(block);
+}
+
+void unblock(int mboxID, int block) {
+    // multiple processes may be blocked on the same mailbox, we only want to unblock one of them
+    // this keeps track of it. Start at -1 incase no one is blocked on that mailbox
+    int unblockID = -1;
+
+    // go through the entire proc list and find the process to be unblocked
     for (int i = 0; i < MAXPROC; i++) {
-        currProc = &processTable[i];
-        
-        if (currProc->mboxID == mbox->mboxID && currProc->blockStatus == status) {
-            if (earliestBlocked == NULL) {
-                earliestBlocked = currProc;
+        // find a process blocked on this mailbox and make sure they are the same type of block
+        if (processTable[i].mboxID == mboxID && processTable[i].blockStatus == block) {
+            // if this is the first process to be found
+            if (unblockID == -1) {
+                // set the unblockid to this new processes index in the table
+                unblockID = i;
             }
+            // otherwise
             else {
-                //find which has been waiting longer
-                if (earliestBlocked->timeAdded > currProc->timeAdded) {
-                    earliestBlocked = currProc;
+                // compare the start times of the old process and this new found one
+                if (processTable[unblockID].timeAdded > processTable[i].timeAdded) {
+                    // if the new found process was blocked before the last found process, swap
+                    unblockID = i;
                 }
             }
         }
     }
 
-    return earliestBlocked;
+    // check to see if anyone needs to be unblocked
+    if (unblockID != -1) {
+        // save their pid
+        int pid = processTable[unblockID].pid;
+
+        // empty out this slot in the processTable
+        processTable[unblockID].pid = -1;
+        processTable[unblockID].blockStatus = -1;
+        processTable[unblockID].message[0] = '\0';
+        processTable[unblockID].size = -1;
+        processTable[unblockID].mboxID = -1;
+        processTable[unblockID].timeAdded = -1;
+
+        // unblock the process
+        unblockProc(pid);
+    }
 }
 
 /* ------------------------------------------------------------------------
@@ -517,39 +472,60 @@ int getSlot() {
     return i;
 } /* mailSlot */
 
+/*
+ * Helper function for send
+ *  - put message in a slot
+ */
+void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
+{
+    // get the slot to insert in
+    slotPtr slot = &MailSlots[getSlot()];
+
+    // assign the slot to a mailbox
+    // if mailbox is empty, set this slot as the first slot in the box
+    if (mbox->headPtr == NULL) {
+        mbox->headPtr = slot;
+    }
+    // otherwise adjust who the old endptr's next is
+    else {
+        mbox->endPtr->nextSlot = slot;
+    }
+
+    // set the box's endptr to this new slot and inc the mailbox's size
+    mbox->endPtr = slot;
+
+    // put info in the slot
+    slot->mboxID = mbox->mboxID;
+    slot->status = 1;
+    slot->nextSlot = NULL;
+    memcpy(slot->message , msg_ptr, msg_size);
+    slot->size = msg_size;
+
+    // increment numSlotsUsed
+    mbox->numSlotsUsed++;
+}
+
 void removeSlot(int mboxID) {
     // get the mailbox and slot
     mailbox *mbox = &(MailBoxTable[mboxID]);
-    slotPtr slot = mbox->endPtr;
+    slotPtr slot = mbox->headPtr;
 
-    // reorder the mailboxes linked list
-    // check to see if this was the only slot in use
-    if (mbox->headPtr == slot) {
-        // set both head and end to null
-        mbox->headPtr = NULL;
+    // remove this slot from the mailbox
+    mbox->headPtr = slot->nextSlot;
+
+    // if slot was also the endptr, set endptr to null
+    if (mbox->headPtr == NULL) {
         mbox->endPtr = NULL;
     }
-    // otherwise, loop through the the linked list to find the end
-    else {
-        slotPtr newLast;
-        for (newLast = mbox->headPtr; newLast->nextSlot->nextSlot != NULL; newLast = newLast->nextSlot) {
-            ;       
-        }
-
-        // newLast is now the second to last slot
-        // cut its link to the old last and set it as the new last
-        newLast->nextSlot = NULL;
-        mbox->endPtr = newLast;
-    }
-
-    // dec how many slots it is using
-    mbox->numSlotsUsed--;
 
     // null out the slot
     slot->mboxID = -1;
     slot->status = -1;
     slot->nextSlot = NULL;
     slot->message[0] = '\0';
+
+    // dec how many slots it is using
+    mbox->numSlotsUsed--;
 }
 
 static void clockHandler(int dev, void *arg) {
