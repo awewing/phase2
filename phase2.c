@@ -27,6 +27,8 @@ void static terminalHandler(int dev, void *args);
 static void enableInterrupts();
 static void disableInterrupts();
 void check_kernel_mode(char* name);
+void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
+void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size);
 /* -------------------------- Globals ------------------------------------- */
 
 int debugflag2 = 0;
@@ -42,6 +44,8 @@ mailSlot MailSlots[MAXSLOTS];
 mailbox clockBox;
 mailbox termBoxes[TERMBOXMAX];
 mailbox diskBoxes[DISKBOXMAX];
+
+process processTable[MAXPROC];
 
 int clockTicks = 0;
 // also need array of mail slots, array of function ptrs to system call 
@@ -85,6 +89,14 @@ int start1(char *arg)
         MailSlots[i].nextSlot = NULL;
         MailSlots[i].message[0] = '\0';
         MailSlots[i].size = -1;
+    }
+
+    for (int i = 0; i < MAXPROC; i++) {
+        processTable[i].pid = -1;
+        processTable[i].blockStatus = NOT_BLOCKED;
+        processTable[i].message = NULL;
+        processTable[i].size = -1;
+        processTable[i].timeAdded = -1;
     }
 
     // Initialize USLOSS_IntVec and system call handlers,
@@ -162,10 +174,10 @@ int MBoxRelease(int mailboxID) {
     check_kernel_mode("MboxRelease");
 
     // get the mailbox
-    mailbox *mbox = &(MailBoxTable[mbox_id]);
+    mailbox *mbox = &(MailBoxTable[mailboxID]);
 
     // check to make sure the mail box is in use
-    if (mbox->mboxid == -1) {
+    if (mbox->mboxID == -1) {
         return -1;
     }
 
@@ -208,6 +220,37 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
         return -3;
     }
 
+    // figure out what to do & use helper functions
+    // TODO: case for 0 slot mailbox?
+    if (mbox->numSlots > mbox->numSlotsUsed) {
+        if (mbox->blockStatus == RECEIVE_BLOCKED) {
+            // there are processes blocked on receive
+            sendToBlocked(mbox, msg_ptr, msg_size);
+        }
+        else {
+            // Simply add message to the mailbox
+            sendToSlot(mbox, msg_ptr, msg_size);
+
+        }
+    }
+    else {
+        // No open slots, block sender
+
+    }
+
+    //blockMe(SENDBLOCK);
+
+    enableInterrupts();
+
+    return 0;
+} /* MboxSend */
+
+/*
+ * Helper function for send
+ *  - put message in a slot
+ */
+void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
+{
     // allowed to send a message
     // get the slot to put a message in
     mbox->numSlotsUsed++;
@@ -228,18 +271,45 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     mbox->numSlots++;
 
     // put info in the slot
-    slot->mboxID = mbox_id;
+    slot->mboxID = mbox->mboxID;
     slot->status = 1;
     slot->nextSlot = NULL;
-    memcpy(slot->message, msg_ptr, msg_size);
+    memcpy(slot->message , msg_ptr, msg_size);
     slot->size = msg_size;
+}
 
-    //blockMe(SENDBLOCK);
+/*
+ * Helper function for send
+ *  - give message to a proc blocked on receive
+ */
+void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size) {
+    // iterate through procTable, keeping track of proc that has waited the longest
+    process *currProc;
+    process *earliestBlocked = NULL;
 
-    enableInterrupts();
+    for (int i = 0; i < MAXPROC; i++) {
+        currProc = &processTable[i];
+        
+        if (currProc->mboxID == mbox->mboxID && currProc->blockStatus == RECEIVE_BLOCKED) {
+            if (earliestBlocked == NULL) {
+                earliestBlocked = currProc;
+            }
+            else {
+                //find which has been waiting longer
+                if (earliestBlocked->timeAdded > currProc->timeAdded) {
+                    earliestBlocked = currProc;
+                }
+            }
+        }
+    }
 
-    return 0;
-} /* MboxSend */
+    // Put msg into a place that the other process can reach.
+    memcpy(earliestBlocked->message, msg_ptr, msg_size);
+
+    // Unblock the process
+    earliestBlocked->blockStatus = NOT_BLOCKED;
+    unblockProc(earliestBlocked->pid);
+}
 
 /* ------------------------------------------------------------------------
    Name - MboxReceive
