@@ -29,7 +29,7 @@ static void disableInterrupts();
 void check_kernel_mode(char* name);
 void sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size);
-void blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size);
+int blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size);
 process *findFirstBlocked(mailbox *mbox, int status);
 /* -------------------------- Globals ------------------------------------- */
 
@@ -227,10 +227,16 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     if (mbox->numSlots > mbox->numSlotsUsed) {
         if (mbox->blockStatus == RECEIVE_BLOCKED) {
             // there are processes blocked on receive
+            if (DEBUG2 && debugflag2) {
+                USLOSS_Console("MboxSend(): calling sendToBlocked\n");
+            }
             sendToBlocked(mbox, msg_ptr, msg_size);
         }
         else {
             // Simply add message to the mailbox
+            if (DEBUG2 && debugflag2) {
+                USLOSS_Console("MboxSend(): calling sendToSlot\n");
+            } 
             sendToSlot(mbox, msg_ptr, msg_size);
         }
     }
@@ -293,6 +299,18 @@ void sendToBlocked(mailbox *mbox, void *msg_ptr, int msg_size) {
 
     // Put msg into a place that the other process can reach.
     memcpy(earliestBlocked->message, msg_ptr, msg_size);
+    if (DEBUG2 && debugflag2) {
+        USLOSS_Console("sendToBlocked(): copying message '%s' to ptable element\n", earliestBlocked->message);
+    }
+
+
+    if (DEBUG2 && debugflag2) {
+        USLOSS_Console("sendToBlocked(): message: %s\n", earliestBlocked->message);
+        USLOSS_Console("sendToBlocked(): changing size from %d to %d\n", earliestBlocked->size, msg_size);
+        USLOSS_Console("Unblocking process %d\n", earliestBlocked->pid);
+    }
+
+    earliestBlocked->size = msg_size;
 
     // Unblock the process
     earliestBlocked->blockStatus = NOT_BLOCKED;
@@ -334,7 +352,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     // Different receive cases
     if (mbox->numSlotsUsed == 0) {
         mbox->blockStatus = RECEIVE_BLOCKED;
-        blockReceiver(mbox, msg_ptr, msg_size);
+        int newSize = blockReceiver(mbox, msg_ptr, msg_size);
         
         // no longer blocked
         // checked to make sure process wasn't zapped
@@ -342,7 +360,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
             return -3;
         }
 
-        return msg_size;
+        return newSize;
     }
     else {
         // get message
@@ -369,14 +387,18 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 /*
  * Helper func for receive
  *  - puts proc info on ptable and blocks
+ *  - returns size of message received
  */
-void blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size) {
+int blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size) {
+    mbox->blockStatus = RECEIVE_BLOCKED;
     process *newEntry;
     for (int i = 0; i < MAXPROC; i++) {
         if (processTable[i].pid == -1) {
             newEntry = &processTable[i];
         }
     }
+
+    if (DEBUG2 && debugflag2)
 
     if (newEntry == NULL) {
         // there are more than 50 procs in table, impossible, check removal of procs
@@ -385,11 +407,20 @@ void blockReceiver(mailbox *mbox, void *msg_ptr, int msg_size) {
 
     newEntry->pid = getpid();
     newEntry->blockStatus = RECEIVE_BLOCKED;
-    memcpy(newEntry->message, msg_ptr, msg_size);
     newEntry->size = msg_size;
     newEntry->mboxID = mbox->mboxID;
     newEntry->timeAdded = USLOSS_Clock();
     blockMe(RECEIVEBLOCK);
+
+    //after block
+    memcpy(msg_ptr, newEntry->message, msg_size);
+
+    if (DEBUG2 && debugflag2) {
+        USLOSS_Console("new message is %s\n", newEntry->message);
+        USLOSS_Console("new message for receive is %s\n", msg_ptr);
+    }
+
+    return newEntry->size;
 }
 
 int MboxCondSend(int mailboxID, void *message, int message_size) {
@@ -408,8 +439,12 @@ int MboxCondSend(int mailboxID, void *message, int message_size) {
    Returns - void
    ----------------------------------------------------------------------- */
 process *findFirstBlocked(mailbox *mbox, int status) {
+    if (DEBUG2 && debugflag2) {
+        USLOSS_Console("findFirstBlocked(): started\n");
+    }
+
     process *currProc;
-    process *earliestBlocked;
+    process *earliestBlocked = NULL;
 
     for (int i = 0; i < MAXPROC; i++) {
         currProc = &processTable[i];
@@ -425,6 +460,10 @@ process *findFirstBlocked(mailbox *mbox, int status) {
                 }
             }
         }
+    }
+
+    if (DEBUG2 && debugflag2) {
+        USLOSS_Console("findFirstBlocked: out of loop, returning\n");
     }
 
     return earliestBlocked;
