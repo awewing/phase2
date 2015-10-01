@@ -4,6 +4,7 @@ typedef struct mailSlot *slotPtr;
 typedef struct mailbox   mailbox;
 typedef struct mailSlot  mailSlot;
 typedef struct mboxProc *mboxProcPtr;
+typedef struct process process;
 
 struct mailbox {
     int       mboxID;
@@ -23,6 +24,15 @@ struct mailSlot {
     char      message[MAX_MESSAGE];
     int       size;
     // other items as needed...
+};
+
+struct process {
+    int       pid;
+    int       blockStatus;
+    void      * message;
+    int       size;
+    int       mboxID;
+    int       timeAdded;     // determines this process's 'spot in the line'
 };
 
 struct psrBits {
