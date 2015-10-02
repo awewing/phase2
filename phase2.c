@@ -198,6 +198,80 @@ int MboxRelease(int mailboxID) {
     MailBoxTable[mailboxID].mboxID = -1;
     
     // unblock all processes blocked on this mailbox
+    int unblockID = -1; // the index of the proccess to unblock
+
+    // go through the entire proc list and find the process to be unblocked
+    for (int i = 0; i < MAXPROC; i++) {
+        // find a process blocked on this mailbox
+        if (processTable[i].mboxID == mailboxID) {
+            // if this is the first process to be found
+            if (unblockID == -1) {
+                // set the unblockid to this new processes index in the table
+                unblockID = i;
+            }
+            // otherwise
+            else {
+                // compare the start times of the old process and this new found one
+                if (processTable[unblockID].timeAdded > processTable[i].timeAdded) {
+                    // if the new found process was blocked before the last found process, swap
+                    unblockID = i;
+                }
+            }
+        }
+    }
+
+    // if a blocked person was found, release them
+    if (unblockID != -1) {
+        unblockProc(processTable[unblockID].pid);
+
+        // remove their info from the procTable
+        processTable[unblockID].pid = -1;
+        processTable[unblockID].blockStatus = NOT_BLOCKED;
+        processTable[unblockID].message[0] = '\0';
+        processTable[unblockID].size = -1;
+        processTable[unblockID].mboxID = -1;
+        processTable[unblockID].timeAdded = -1;
+    }
+
+    // if there are still more processes to be unblocked
+    while (unblockID != -1) {
+        // set unblockID back to -1;
+        unblockID = -1;
+
+        // go through the entire proc list and find the process to be unblocked
+        for (int i = 0; i < MAXPROC; i++) {
+            // find a process blocked on this mailbox
+            if (processTable[i].mboxID == mailboxID) {
+                // if this is the first process to be found
+                if (unblockID == -1) {
+                    // set the unblockid to this new processes index in the table
+                    unblockID = i;
+                }
+                // otherwise
+                else {
+                    // compare the start times of the old process and this new found one
+                    if (processTable[unblockID].timeAdded > processTable[i].timeAdded) {
+                        // if the new found process was blocked before the last found process, swap
+                        unblockID = i;
+                    }
+                }
+            }
+        }
+
+        // if a blocked person was found, release them
+        if (unblockID != -1) {            
+            unblockProc(processTable[unblockID].pid);
+
+            // remove their info from the procTable
+            processTable[unblockID].pid = -1;
+            processTable[unblockID].blockStatus = NOT_BLOCKED;
+            processTable[unblockID].message[0] = '\0';
+            processTable[unblockID].size = -1;
+            processTable[unblockID].mboxID = -1;
+            processTable[unblockID].timeAdded = -1;
+        }
+    }
+/*
     for (int i = 0; i < MAXPROC; i++) {
         // find all processes blocked on said mailbox
         if (processTable[i].mboxID == mailboxID) {
@@ -213,7 +287,7 @@ int MboxRelease(int mailboxID) {
             processTable[i].timeAdded = -1;
         }
     }
-
+*/
     // null out all slots used by the mailbox
     slotPtr pre = NULL;
     slotPtr slot = mbox->headPtr;
