@@ -49,6 +49,6 @@ union psrValues {
 };
 
 // for mailbox.blockStatus
-#define NOT_BLOCKED 0
-#define RECEIVE_BLOCKED 1
-#define SEND_BLOCKED 2
+#define NOT_BLOCKED     0
+#define SENDBLOCK       11
+#define RECEIVEBLOCK    12

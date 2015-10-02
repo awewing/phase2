@@ -14,24 +14,27 @@
 #include <stdio.h>
 
 #include "message.h"
-
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
 
-void block(int mboxID, int block);
-int unblock(int mboxID, int block);
+void block(int mboxID, int block, int size);
+int unblock(int mboxID, int block, int size);
 int getNextID();
 int getSlot();
 int sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void removeSlot(int mboxID);
-void static clockHandler(int dev, void *args);
-void static diskHandler(int dev, void *args);
-void static terminalHandler(int dev, void *args);
+int waitDevice(int type, int unit, int *status);
+static void nullsys(systemArgs *args);
+static void clockHandler2(int dev, void *args);
+static void diskHandler(int dev, void *args);
+static void terminalHandler(int dev, void *args);
+static void syscallHandler(int dec, void *args);
 static void enableInterrupts();
 static void disableInterrupts();
 void check_kernel_mode(char* name);
 /* -------------------------- Globals ------------------------------------- */
+void (*sys_vec[MAXSYSCALLS])(systemArgs *args);
 
 int debugflag2 = 0;
 
@@ -42,8 +45,8 @@ int nextFreeBox = 0;
 mailbox MailBoxTable[MAXMBOX];
 mailSlot MailSlots[MAXSLOTS];
 mailbox clockBox;
-mailbox termBoxes[TERMBOXMAX];
-mailbox diskBoxes[DISKBOXMAX];
+mailbox termBoxes[USLOSS_TERM_UNITS];
+mailbox diskBoxes[USLOSS_DISK_UNITS];
 
 process processTable[MAXPROC];
 
@@ -101,19 +104,25 @@ int start1(char *arg)
     }
 
     // Initialize USLOSS_IntVec and system call handlers,
-    USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler;
+    USLOSS_IntVec[USLOSS_CLOCK_INT] = clockHandler2;
     USLOSS_IntVec[USLOSS_DISK_INT] = diskHandler;
     USLOSS_IntVec[USLOSS_TERM_INT] = terminalHandler;
+    USLOSS_IntVec[USLOSS_SYSCALL_INT] = syscallHandler;
 
     // allocate mailboxes for interrupt handlers.  Etc... 
     clockBox = MailBoxTable[MboxCreate(0, 0)];
 
-    for (int i = 0; i < DISKBOXMAX; i++) {
+    for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
         diskBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
     }
 
-    for (int i = 0; i < TERMBOXMAX; i++) {
+    for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
         termBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
+    }
+
+    // intialize sys_vec
+    for (int i = 0; i < MAXSYSCALLS; i++) {
+        sys_vec[i] = nullsys;
     }
 
     // all done creating stuff, re enable interrupts
@@ -275,8 +284,8 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, block
-        if (!unblock(mbox->mboxID, RECEIVEBLOCK)) {
-            block(mbox->mboxID, SENDBLOCK);
+        if (!unblock(mbox->mboxID, RECEIVEBLOCK, msg_size)) {
+            block(mbox->mboxID, SENDBLOCK, msg_size);
         }
 
         // checked to make sure process wasn't zapped
@@ -297,7 +306,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 
     // check if no free slots 
     if (mbox->numSlots == mbox->numSlotsUsed) {
-        block(mbox->mboxID, SENDBLOCK);
+        block(mbox->mboxID, SENDBLOCK, msg_size);
     
         // checked to make sure process wasn't zapped
         if (isZapped()) {
@@ -315,8 +324,11 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     // write to that slot
     sendToSlot(mbox, msg_ptr, msg_size);
     
-    // unblock people waiting on this mailbox
-    unblock(mbox->mboxID, RECEIVEBLOCK);
+    // unblock people waiting on this mailbox, insuring sent message isn't too big
+    if (unblock(mbox->mboxID, RECEIVEBLOCK, msg_size) == 2) {
+        enableInterrupts();
+        return -1;
+    }
 
     // may not be needed
     // checked to make sure process wasn't zapped
@@ -361,8 +373,8 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, block
-        if (!unblock(mbox->mboxID, SENDBLOCK)) {
-            block(mbox->mboxID, RECEIVEBLOCK);
+        if (!unblock(mbox->mboxID, SENDBLOCK, msg_size)) {
+            block(mbox->mboxID, RECEIVEBLOCK, msg_size);
         }
 
         // checked to make sure process wasn't zapped
@@ -383,7 +395,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 
     // check if no messages
     if (mbox->numSlotsUsed == 0) {
-        block(mbox_id, RECEIVEBLOCK);
+        block(mbox_id, RECEIVEBLOCK, msg_size);
     
         // no longer blocked
         // checked to make sure process wasn't zapped
@@ -413,7 +425,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     removeSlot(mbox_id);
 
     // unblock send blocked people
-    unblock(mbox_id, SENDBLOCK);
+    unblock(mbox_id, SENDBLOCK, msg_size);
 
     // may not be needed
     // checked to make sure process wasn't zapped
@@ -452,7 +464,7 @@ int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, leave
-        if (!unblock(mbox->mboxID, RECEIVEBLOCK)) {
+        if (!unblock(mbox->mboxID, RECEIVEBLOCK, msg_size)) {
             enableInterrupts();
             return -2;
         }
@@ -485,8 +497,11 @@ int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
         return -2;
     }
 
-    // unblock people waiting on this mailbox
-    unblock(mbox->mboxID, RECEIVEBLOCK);
+    // unblock people waiting on this mailbox, insuring sent message isn't too big
+    if (unblock(mbox->mboxID, RECEIVEBLOCK, msg_size)) {
+        enableInterrupts();
+        return -1;
+    }
 
     // checked to make sure process wasn't zapped
     if (isZapped()) {
@@ -520,7 +535,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_size) {
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, leave
-        if (!unblock(mbox->mboxID, SENDBLOCK)) {
+        if (!unblock(mbox->mboxID, SENDBLOCK, msg_size)) {
             enableInterrupts();
             return -2;
         }
@@ -561,7 +576,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_size) {
     removeSlot(mbox_id);
 
     // unblock send blocked people
-    unblock(mbox_id, SENDBLOCK);
+    unblock(mbox_id, SENDBLOCK, msg_size);
 
     // checked to make sure process wasn't zapped
     if (isZapped()) {
@@ -573,7 +588,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_size) {
     return size;
 }
 
-void block(int mboxID, int block) {
+void block(int mboxID, int block, int size) {
     // get the correct process from the process table
     process *proc = &processTable[getpid() % 50];
 
@@ -582,6 +597,7 @@ void block(int mboxID, int block) {
     proc->blockStatus = block;
     proc->mboxID = mboxID;
     proc->timeAdded = USLOSS_Clock();
+    proc->size = size;
 
     // actually block
     blockMe(block);
@@ -589,7 +605,7 @@ void block(int mboxID, int block) {
 
 // returns 0 if nothing unblocked
 // returns 1 if something was unblocked
-int unblock(int mboxID, int block) {
+int unblock(int mboxID, int block, int size) {
     // multiple processes may be blocked on the same mailbox, we only want to unblock one of them
     // this keeps track of it. Start at -1 incase no one is blocked on that mailbox
     int unblockID = -1;
@@ -619,6 +635,12 @@ int unblock(int mboxID, int block) {
         // save their pid
         int pid = processTable[unblockID].pid;
 
+        // check if a receiver wants to get a message thats too big
+        int retVal = 1;
+        if (block == RECEIVEBLOCK && size > processTable[unblockID].size) {
+            retVal++;
+        }
+
         // empty out this slot in the processTable
         processTable[unblockID].pid = -1;
         processTable[unblockID].blockStatus = -1;
@@ -630,7 +652,7 @@ int unblock(int mboxID, int block) {
         // unblock the process
         unblockProc(pid);
 
-        return 1;
+        return retVal;
     }
     else {
         return 0;
@@ -735,6 +757,8 @@ int sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size)
 
     // increment numSlotsUsed
     mbox->numSlotsUsed++;
+
+    return 0;
 }
 
 void removeSlot(int mboxID) {
@@ -760,7 +784,17 @@ void removeSlot(int mboxID) {
     mbox->numSlotsUsed--;
 }
 
-static void clockHandler(int dev, void *arg) {
+int waitDevice(int type, int unit, int *status) {
+
+    return 0;
+}
+
+static void nullsys(systemArgs *args) {
+    USLOSS_Console("nullsys(): Invalid syscall %d. Halting...\n", args->number);
+    USLOSS_Halt(1);
+}
+
+static void clockHandler2(int dev, void *arg) {
     // check if dispatcher should be called
     if (readCurStartTime() >= 80000) {
         timeSlice();
@@ -776,11 +810,68 @@ static void clockHandler(int dev, void *arg) {
 }
 
 static void diskHandler(int dev, void *arg) {
+    long unit = (long) arg;
+    int diskResult;
 
+    // check for valid values
+    if (dev != USLOSS_DISK_DEV || unit < 0 || unit > USLOSS_DISK_UNITS) {
+        USLOSS_Console("diskHandler(): Bad values\n");
+        USLOSS_Halt(1);
+    }
+
+    // make sure our box still exists
+    if (diskBoxes[unit].mboxID == -1) {
+        USLOSS_Console("Disk mailbox does not exist\n");
+        return -1;
+    }
+
+    USLOSS_DeviceInput(USLOSS_DISK_DEV, unit, &diskResult);
+    MboxCondSend(diskBoxes[unit].mboxID, &diskResult, sizeof(diskResult));
 }
 
 static void terminalHandler(int dev, void *arg) {
+    long unit = (long) arg;
+    int termResult;
 
+    // check for valid values
+    if (dev != USLOSS_TERM_DEV || unit < 0 || unit > USLOSS_TERM_UNITS) {
+        USLOSS_Console("diskHandler(): Bad values\n");
+        USLOSS_Halt(1);
+    }
+
+    // make sure our box still exists
+    if (diskBoxes[unit].mboxID == -1) {
+        USLOSS_Console("Disk mailbox does not exist\n");
+        return -1;
+    }
+
+    USLOSS_DeviceInput(USLOSS_TERM_DEV, unit, &termResult);
+    int result = MboxCondSend(termBoxes[unit].mboxID, &termResult, sizeof(termResult));
+
+    if (result != USLOSS_DEV_OK) {
+        USLOSS_Console("termHandler(): USLOSS_DeviceInput is not ok.\n");
+        USLOSS_Halt(1);
+    }
+}
+
+static void syscallHandler(int dev, void *args) {
+    // get args
+    systemArgs *sysPtr = (systemArgs *) args;
+
+    // check if valid dev
+    if (dev != USLOSS_SYSCALL_INT) {
+        USLOSS_Console("syscallHandler(): Bad call\n");
+        USLOSS_Halt(1);
+    }
+
+    // check if valid range of args
+    if (sysPtr->number < 0 || sysPtr->number >= MAXSYSCALLS) {
+        USLOSS_Console("syscallHandler(): sys number %d is wrong.  Halting...\n", sysPtr->number);
+        USLOSS_Halt(1);
+    }
+    
+    USLOSS_PsrSet( USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+    sys_vec[sysPtr->number](sysPtr);
 }
 
 /*
