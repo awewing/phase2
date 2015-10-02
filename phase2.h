@@ -9,7 +9,7 @@
  * Maximum line length. Used by terminal read and write.
  */
 #define MAXLINE         80
-#define MAXSYSCALLS     50
+
 #define MAXMBOX         2000
 #define MAXSLOTS        2500
 #define MAX_MESSAGE     150  /* largest possible message in a single slot */
@@ -47,7 +47,4 @@ typedef struct systemArgs
         void *arg4;
         void *arg5;
 } systemArgs;
-
-//extern void             (*sys_vec[])(systemArgs *args);
-
 #endif
