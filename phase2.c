@@ -20,7 +20,6 @@ extern int start2 (char *);
 
 void block(int mboxID, int block, int size);
 int unblock(int mboxID, int block, int size);
-int getNextID();
 int getSlot();
 int sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void removeSlot(int mboxID);
@@ -38,17 +37,14 @@ void (*sys_vec[MAXSYSCALLS])(systemArgs *args);
 
 int debugflag2 = 0;
 
-int numBoxes = 0;
-int nextFreeBox = 0;
-
 // the mail boxes 
-mailbox MailBoxTable[MAXMBOX];
-mailSlot MailSlots[MAXSLOTS];
 mailbox clockBox;
 mailbox termBoxes[USLOSS_TERM_UNITS];
 mailbox diskBoxes[USLOSS_DISK_UNITS];
 
-process processTable[MAXPROC];
+mailbox MailBoxTable[MAXMBOX]; // mail box table
+mailSlot MailSlots[MAXSLOTS];  // slot table
+process processTable[MAXPROC]; // proc table
 
 int clockTicks = 0;
 // also need array of mail slots, array of function ptrs to system call 
@@ -156,15 +152,28 @@ int MboxCreate(int slots, int slot_size)
     check_kernel_mode("MboxCreate");
     disableInterrupts();
 
-    // find an id
-    int ID = getNextID();
-
-    // check slot_size isn't too big
-    if (slot_size > MAX_MESSAGE) {
+    // make sure they are requesting a positive number of slots
+    if (slots < 0) {
         return -1;
     }
 
-    // no open mailboxes
+    // check slot_size isn't too big or too small
+    if (slot_size > MAX_MESSAGE || slot_size < 0) {
+        return -1;
+    }
+
+    // id of the mailbox we will use
+    int ID = -1;
+
+    // go through the table of mail boxes looking for an open one
+    for (int i = 0; i < MAXMBOX; i++) {
+        if (MailBoxTable[i].mboxID == -1) {
+            ID = i;
+            break;
+        }
+    }
+
+    // if it made it all the way through the loop without finding a box, then the boxtable is full
     if (ID == -1) {
         return -1;
     }
@@ -271,23 +280,7 @@ int MboxRelease(int mailboxID) {
             processTable[unblockID].timeAdded = -1;
         }
     }
-/*
-    for (int i = 0; i < MAXPROC; i++) {
-        // find all processes blocked on said mailbox
-        if (processTable[i].mboxID == mailboxID) {
-            // zap those processes and unblock them
-            unblockProc(processTable[i].pid);
-
-            // remove their info from the procTable
-            processTable[i].pid = -1;
-            processTable[i].blockStatus = NOT_BLOCKED;
-            processTable[i].message[0] = '\0';
-            processTable[i].size = -1;
-            processTable[i].mboxID = -1;
-            processTable[i].timeAdded = -1;
-        }
-    }
-*/
+    
     // null out all slots used by the mailbox
     slotPtr pre = NULL;
     slotPtr slot = mbox->headPtr;
@@ -732,40 +725,6 @@ int unblock(int mboxID, int block, int size) {
         return 0;
     }
 }
-
-/* ------------------------------------------------------------------------
-   Name - getNextID
-   Purpose - get next mailbox id
-   returns - mbox id or -1 if none are open.
-   ----------------------------------------------------------------------- */
-int getNextID() {
-    int initial = nextFreeBox;
-
-    // check for number of boxes in use
-    if (numBoxes >= MAXMBOX) {
-        return -1;
-    }
-
-    // go through all the boxes until you find a free one
-    while (MailBoxTable[nextFreeBox].mboxID != -1) {
-        nextFreeBox++;
-
-        // if you get to the final box, reset
-        if (nextFreeBox == MAXMBOX) {
-            nextFreeBox = 0;
-        }
-
-        // if you loop all the way around quit
-        if (nextFreeBox == initial) {
-            return -1;
-        }
-    }
-
-    // inc numboxes
-    numBoxes++;
-
-    return nextFreeBox;
-} /* getNextID */
 
 /* ------------------------------------------------------------------------
    Name - getSlot
