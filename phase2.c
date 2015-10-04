@@ -673,17 +673,26 @@ void block(int mboxID, int block, int size, char message[], int *realSize) {
 
     // if a zero slot message box wants to send a message
     if (message != NULL && block == SENDBLOCK) {
-        //proc->message = message;
         memcpy(proc->message, message, size);
-    }
-    else if (message != NULL && block == RECEIVEBLOCK) {
-        //message = proc->message;
-        memcpy(message, proc->message, size);
-        *realSize = proc->size;
     }
 
     // actually block
     blockMe(block);
+
+    if (message != NULL && block == RECEIVEBLOCK) {
+        memcpy(message, processTable[getpid() % 50].message, size);
+        *realSize = processTable[getpid() % 50].size;
+    }
+
+    if (block == RECEIVEBLOCK) {
+        // empty out this slot in the processTable
+        processTable[getpid() % 50].pid = -1;
+        processTable[getpid() % 50].blockStatus = -1;
+        processTable[getpid() % 50].message[0] = '\0';
+        processTable[getpid() % 50].size = -1;
+        processTable[getpid() % 50].mboxID = -1;
+        processTable[getpid() % 50].timeAdded = -1;
+    }
 }
 
 // returns 0 if nothing unblocked
@@ -724,24 +733,25 @@ int unblock(int mboxID, int block, int size, char message[], int *realSize) {
             retVal++;
         }
 
-        // if a zero slot message box wants to send a message
-        if (message != NULL && block == RECEIVEBLOCK) {
-            //processTable[unblockID].message = message;
-            memcpy(processTable[unblockID].message, message, size);
-        }
-        else if (message != NULL && block == SENDBLOCK) {
-            //message = processTable[unblockID].message;
+        // if a zero slot message box
+        if (message != NULL && block == SENDBLOCK) {
             memcpy(message, processTable[unblockID].message, size);
             *realSize = processTable[unblockID].size;
         }
+        else if (message != NULL && block == RECEIVEBLOCK) {
+            memcpy(processTable[unblockID].message, message, size);
+            processTable[unblockID].size = size;
+        }
 
-        // empty out this slot in the processTable
-        processTable[unblockID].pid = -1;
-        processTable[unblockID].blockStatus = -1;
-        processTable[unblockID].message[0] = '\0';
-        processTable[unblockID].size = -1;
-        processTable[unblockID].mboxID = -1;
-        processTable[unblockID].timeAdded = -1;
+        if (block == SENDBLOCK) {
+            // empty out this slot in the processTable
+            processTable[unblockID].pid = -1;
+            processTable[unblockID].blockStatus = -1;
+            processTable[unblockID].message[0] = '\0';
+            processTable[unblockID].size = -1;
+            processTable[unblockID].mboxID = -1;
+            processTable[unblockID].timeAdded = -1;
+        }
 
         // unblock the process
         unblockProc(pid);
