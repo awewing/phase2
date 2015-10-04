@@ -14,6 +14,7 @@
 #include <stdio.h>
 
 #include "message.h"
+#include "p1.c"
 /* ------------------------- Prototypes ----------------------------------- */
 int start1 (char *);
 extern int start2 (char *);
@@ -844,6 +845,36 @@ void removeSlot(int mboxID) {
 }
 
 int waitDevice(int type, int unit, int *status) {
+    int mboxID = -1;
+
+    switch (type) {
+        case USLOSS_CLOCK_DEV :
+            mboxID = 0;
+            break;
+        case USLOSS_DISK_INT :
+            mboxID = unit + 1;
+            break;
+        case USLOSS_TERM_INT :
+            mboxID = unit + 3;
+            break;
+    }
+
+    if (debugflag2 && DEBUG2) {
+        USLOSS_Console("waitDevice(): receiving from %d\n", mboxID);
+    }
+
+    //notify p1.c that there is another process waiting on a device, then receive/block
+    addProcess();
+    MboxReceive(mboxID, status, 0);
+    releaseProcess();
+
+    if (debugflag2 && DEBUG2) {
+        USLOSS_Console("waitDevice(): received %s from mailbox %d\n", status, mboxID);
+    }
+
+    if (isZapped()) {
+        return -1;
+    }
 
     return 0;
 }

@@ -1,7 +1,9 @@
 
 #include "usloss.h"
 #define DEBUG 0
+
 extern int debugflag;
+int waitingProcesses = 0;
 
 void
 p1_fork(int pid)
@@ -27,5 +29,16 @@ p1_quit(int pid)
 int
 check_io()
 {
-    return 0;
+	if (waitingProcesses > 0)
+		return 1;
+	else
+    	return 0;
+}
+
+void addProcess() {
+	waitingProcesses++;
+}
+
+void releaseProcess() {
+	waitingProcesses--;
 }
