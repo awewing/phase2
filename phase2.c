@@ -36,7 +36,7 @@ void check_kernel_mode(char* name);
 /* -------------------------- Globals ------------------------------------- */
 void (*sys_vec[MAXSYSCALLS])(systemArgs *args);
 
-int debugflag2 = 0;
+int debugflag2 = 1;
 
 // the mail boxes 
 mailbox clockBox;
@@ -835,31 +835,31 @@ void removeSlot(int mboxID) {
 }
 
 int waitDevice(int type, int unit, int *status) {
-    int mboxID = -1;
+    mailbox *mbox;
 
     switch (type) {
         case USLOSS_CLOCK_DEV :
-            mboxID = 0;
+            mbox = &clockBox;
             break;
         case USLOSS_DISK_INT :
-            mboxID = unit + 1;
+            mbox = &diskBoxes[unit];
             break;
         case USLOSS_TERM_INT :
-            mboxID = unit + 3;
+            mbox = &termBoxes[unit];
             break;
     }
 
     if (debugflag2 && DEBUG2) {
-        USLOSS_Console("waitDevice(): receiving from %d\n", mboxID);
+        USLOSS_Console("waitDevice(): receiving from %d\n", mbox->mboxID);
     }
 
     //notify p1.c that there is another process waiting on a device, then receive/block
     addProcess();
-    MboxReceive(mboxID, status, 0);
+    MboxReceive(mbox->mboxID, status, 0);
     releaseProcess();
 
     if (debugflag2 && DEBUG2) {
-        USLOSS_Console("waitDevice(): received %s from mailbox %d\n", status, mboxID);
+        USLOSS_Console("waitDevice(): received %s from mailbox %d\n", status, mbox->mboxID);
     }
 
     if (isZapped()) {
@@ -875,6 +875,9 @@ static void nullsys(systemArgs *args) {
 }
 
 static void clockHandler2(int dev, void *arg) {
+    long unit = (long) arg;
+    int clockResult;
+
     // check if dispatcher should be called
     if (readCurStartTime() >= 80000) {
         timeSlice();
@@ -883,6 +886,7 @@ static void clockHandler2(int dev, void *arg) {
     // inc that a clock interrupt happened
     clockTicks++;
 
+    USLOSS_DeviceInput(USLOSS_CLOCK_DEV, unit, &clockResult);
     // every fith interrupt do a conditional send to its mailbox
     if (clockTicks % 5 == 0) {
         MboxCondSend(clockBox.mboxID, NULL, 0);
@@ -909,22 +913,32 @@ static void diskHandler(int dev, void *arg) {
 }
 
 static void terminalHandler(int dev, void *arg) {
+
     long unit = (long) arg;
+
+    if (debugflag2 && DEBUG2) {
+        USLOSS_Console("terminalHandler(): dev = %d\n", dev);
+        USLOSS_Console("terminalHandler(): unit = %d\n", unit);
+    }
     int termResult;
 
     // check for valid values
     if (dev != USLOSS_TERM_DEV || unit < 0 || unit > USLOSS_TERM_UNITS) {
-        USLOSS_Console("diskHandler(): Bad values\n");
+        USLOSS_Console("termHandler(): Bad values\n");
         USLOSS_Halt(1);
     }
 
     // make sure our box still exists
-    if (diskBoxes[unit].mboxID == -1) {
-        USLOSS_Console("Disk mailbox does not exist\n");
+    if (termBoxes[unit].mboxID == -1) {
+        USLOSS_Console("Term mailbox does not exist\n");
     }
 
-    USLOSS_DeviceInput(USLOSS_TERM_DEV, unit, &termResult);
-    int result = MboxCondSend(termBoxes[unit].mboxID, &termResult, sizeof(termResult));
+    int result = USLOSS_DeviceInput(USLOSS_TERM_DEV, unit, &termResult);
+
+    if (debugflag2 && DEBUG2) {
+        USLOSS_Console("terminalHandler(): sending now from dev %d to mbox %d\n", dev, termBoxes[unit].mboxID);
+    }
+    MboxCondSend(termBoxes[unit].mboxID, &termResult, sizeof(termResult));
 
     if (result != USLOSS_DEV_OK) {
         USLOSS_Console("termHandler(): USLOSS_DeviceInput is not ok.\n");
