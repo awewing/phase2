@@ -19,8 +19,8 @@
 int start1 (char *);
 extern int start2 (char *);
 
-void block(int mboxID, int block, int size);
-int unblock(int mboxID, int block, int size);
+void block(int mboxID, int block, int size, char **message);
+int unblock(int mboxID, int block, int size, char **message);
 int getSlot();
 int sendToSlot(mailbox *mbox, void *msg_ptr, int msg_size);
 void removeSlot(int mboxID);
@@ -94,7 +94,7 @@ int start1(char *arg)
     for (int i = 0; i < MAXPROC; i++) {
         processTable[i].pid = -1;
         processTable[i].blockStatus = NOT_BLOCKED;
-        processTable[i].message[0] = '\0';
+        processTable[i].message = NULL;
         processTable[i].size = -1;
         processTable[i].mboxID = -1;
         processTable[i].timeAdded = -1;
@@ -237,7 +237,7 @@ int MboxRelease(int mailboxID) {
         // remove their info from the procTable
         processTable[unblockID].pid = -1;
         processTable[unblockID].blockStatus = NOT_BLOCKED;
-        processTable[unblockID].message[0] = '\0';
+        processTable[unblockID].message = NULL;
         processTable[unblockID].size = -1;
         processTable[unblockID].mboxID = -1;
         processTable[unblockID].timeAdded = -1;
@@ -275,7 +275,7 @@ int MboxRelease(int mailboxID) {
             // remove their info from the procTable
             processTable[unblockID].pid = -1;
             processTable[unblockID].blockStatus = NOT_BLOCKED;
-            processTable[unblockID].message[0] = '\0';
+            processTable[unblockID].message = NULL;
             processTable[unblockID].size = -1;
             processTable[unblockID].mboxID = -1;
             processTable[unblockID].timeAdded = -1;
@@ -348,12 +348,12 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
         enableInterrupts();
         return -1;
     }
-
+//USLOSS_Console("==============================================%s\n", msg_ptr);
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, block
-        if (!unblock(mbox->mboxID, RECEIVEBLOCK, msg_size)) {
-            block(mbox->mboxID, SENDBLOCK, msg_size);
+        if (!unblock(mbox->mboxID, RECEIVEBLOCK, msg_size, msg_ptr)) {
+            block(mbox->mboxID, SENDBLOCK, msg_size, msg_ptr);
         }
 
         // checked to make sure process wasn't zapped
@@ -374,7 +374,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
 
     // check if no free slots 
     if (mbox->numSlots == mbox->numSlotsUsed) {
-        block(mbox->mboxID, SENDBLOCK, msg_size);
+        block(mbox->mboxID, SENDBLOCK, msg_size, NULL);
     
         // checked to make sure process wasn't zapped
         if (isZapped()) {
@@ -393,7 +393,7 @@ int MboxSend(int mbox_id, void *msg_ptr, int msg_size)
     sendToSlot(mbox, msg_ptr, msg_size);
     
     // unblock people waiting on this mailbox, insuring sent message isn't too big
-    if (unblock(mbox->mboxID, RECEIVEBLOCK, msg_size) == 2) {
+    if (unblock(mbox->mboxID, RECEIVEBLOCK, msg_size, NULL) == 2) {
         enableInterrupts();
         return -1;
     }
@@ -441,8 +441,8 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, block
-        if (!unblock(mbox->mboxID, SENDBLOCK, msg_size)) {
-            block(mbox->mboxID, RECEIVEBLOCK, msg_size);
+        if (!unblock(mbox->mboxID, SENDBLOCK, msg_size, msg_ptr)) {
+            block(mbox->mboxID, RECEIVEBLOCK, msg_size, msg_ptr);
         }
 
         // checked to make sure process wasn't zapped
@@ -463,7 +463,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
 
     // check if no messages
     if (mbox->numSlotsUsed == 0) {
-        block(mbox_id, RECEIVEBLOCK, msg_size);
+        block(mbox_id, RECEIVEBLOCK, msg_size, NULL);
     
         // no longer blocked
         // checked to make sure process wasn't zapped
@@ -493,7 +493,7 @@ int MboxReceive(int mbox_id, void *msg_ptr, int msg_size)
     removeSlot(mbox_id);
 
     // unblock send blocked people
-    unblock(mbox_id, SENDBLOCK, msg_size);
+    unblock(mbox_id, SENDBLOCK, msg_size, NULL);
 
     // may not be needed
     // checked to make sure process wasn't zapped
@@ -532,7 +532,7 @@ int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, leave
-        if (!unblock(mbox->mboxID, RECEIVEBLOCK, msg_size)) {
+        if (!unblock(mbox->mboxID, RECEIVEBLOCK, msg_size, msg_ptr)) {
             enableInterrupts();
             return -2;
         }
@@ -566,7 +566,7 @@ int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
     }
 
     // unblock people waiting on this mailbox, insuring sent message isn't too big
-    if (unblock(mbox->mboxID, RECEIVEBLOCK, msg_size)) {
+    if (unblock(mbox->mboxID, RECEIVEBLOCK, msg_size, NULL)) {
         enableInterrupts();
         return -1;
     }
@@ -603,7 +603,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_size) {
     // check for 0-slot mbox
     if (mbox->numSlots == 0) {
         // if there was no one waiting on this mailbox, leave
-        if (!unblock(mbox->mboxID, SENDBLOCK, msg_size)) {
+        if (!unblock(mbox->mboxID, SENDBLOCK, msg_size, msg_ptr)) {
             enableInterrupts();
             return -2;
         }
@@ -644,7 +644,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_size) {
     removeSlot(mbox_id);
 
     // unblock send blocked people
-    unblock(mbox_id, SENDBLOCK, msg_size);
+    unblock(mbox_id, SENDBLOCK, msg_size, NULL);
 
     // checked to make sure process wasn't zapped
     if (isZapped()) {
@@ -656,7 +656,7 @@ int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_size) {
     return size;
 }
 
-void block(int mboxID, int block, int size) {
+void block(int mboxID, int block, int size, char **message) {
     // get the correct process from the process table
     process *proc = &processTable[getpid() % 50];
 
@@ -667,13 +667,21 @@ void block(int mboxID, int block, int size) {
     proc->timeAdded = USLOSS_Clock();
     proc->size = size;
 
+    // if a zero slot message box wants to send a message
+    if (message != NULL && block == SENDBLOCK) {
+        proc->message = &message;
+    }
+    else if(message != NULL && block == RECEIVEBLOCK) {
+        message = &proc->message;
+    }
+
     // actually block
     blockMe(block);
 }
 
 // returns 0 if nothing unblocked
 // returns 1 if something was unblocked
-int unblock(int mboxID, int block, int size) {
+int unblock(int mboxID, int block, int size, char **message) {
     // multiple processes may be blocked on the same mailbox, we only want to unblock one of them
     // this keeps track of it. Start at -1 incase no one is blocked on that mailbox
     int unblockID = -1;
@@ -709,10 +717,18 @@ int unblock(int mboxID, int block, int size) {
             retVal++;
         }
 
+        // if a zero slot message box wants to send a message
+        if (message != NULL && block == RECEIVEBLOCK) {
+            processTable[unblockID].message = &message;
+        }
+        else if (message != NULL && block == SENDBLOCK) {
+            message = &processTable[unblockID].message;
+        }
+
         // empty out this slot in the processTable
         processTable[unblockID].pid = -1;
         processTable[unblockID].blockStatus = -1;
-        processTable[unblockID].message[0] = '\0';
+        processTable[unblockID].message = NULL;
         processTable[unblockID].size = -1;
         processTable[unblockID].mboxID = -1;
         processTable[unblockID].timeAdded = -1;
