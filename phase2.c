@@ -36,7 +36,7 @@ void check_kernel_mode(char* name);
 /* -------------------------- Globals ------------------------------------- */
 void (*sys_vec[MAXSYSCALLS])(systemArgs *args);
 
-int debugflag2 = 1;
+int debugflag2 = 0;
 
 // the mail boxes 
 mailbox clockBox;
@@ -105,14 +105,14 @@ int start1(char *arg)
     USLOSS_IntVec[USLOSS_SYSCALL_INT] = syscallHandler;
 
     // allocate mailboxes for interrupt handlers.  Etc... 
-    clockBox = MailBoxTable[MboxCreate(0, 0)];
+    clockBox = MailBoxTable[MboxCreate(0, sizeof(long))];
 
     for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
-        diskBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
+        diskBoxes[i] = MailBoxTable[MboxCreate(0, sizeof(long))];
     }
 
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        termBoxes[i] = MailBoxTable[MboxCreate(0, 0)];
+        termBoxes[i] = MailBoxTable[MboxCreate(0, sizeof(long))];
     }
 
     // intialize sys_vec
@@ -517,16 +517,25 @@ int MboxCondSend(int mbox_id, void *msg_ptr, int msg_size) {
     // check message size isn't too big
     if (msg_size > MAX_MESSAGE) {
         enableInterrupts();
+        if (debugflag2 && DEBUG2) {
+            USLOSS_Console("MboxCondSend: size too big for max\n");
+        }
         return -1;
     }
     else if (msg_size > mbox->slotSize) {
         enableInterrupts();
+        if (debugflag2 && DEBUG2) {
+            USLOSS_Console("MboxCondSend: size too big for box\n");
+        }
         return -1;
     }
 
     // check if mailbox exists at first
     if (mbox->mboxID == -1) {
         enableInterrupts();
+        if (debugflag2 && DEBUG2) {
+            USLOSS_Console("MboxCondSend: mbox doesn't exist\n");
+        }
         return -1;
     }
 
@@ -865,7 +874,7 @@ int waitDevice(int type, int unit, int *status) {
 
     //notify p1.c that there is another process waiting on a device, then receive/block
     addProcess();
-    MboxReceive(mbox->mboxID, status, 0);
+    MboxReceive(mbox->mboxID, status, sizeof(long));
     releaseProcess();
 
     if (debugflag2 && DEBUG2) {
@@ -896,10 +905,22 @@ static void clockHandler2(int dev, void *arg) {
     // inc that a clock interrupt happened
     clockTicks++;
 
-    USLOSS_DeviceInput(USLOSS_CLOCK_DEV, unit, &clockResult);
+    USLOSS_DeviceInput(dev, unit, &clockResult);
+
+    
     // every fith interrupt do a conditional send to its mailbox
     if (clockTicks % 5 == 0) {
-        MboxCondSend(clockBox.mboxID, NULL, 0);
+
+        if (debugflag2 && DEBUG2) {
+            USLOSS_Console("clockHandler2: sending message %s to mbox %d\n", clockResult, clockBox.mboxID);
+        }
+
+        int sendResult = MboxCondSend(clockBox.mboxID, &clockResult, sizeof(clockResult));
+
+        if (debugflag2 && DEBUG2) {
+            USLOSS_Console("clockHandler2: send returned %d\n", sendResult);
+            USLOSS_Halt(1);
+        }
     }
 }
 
@@ -947,9 +968,9 @@ static void terminalHandler(int dev, void *arg) {
 
     int result = USLOSS_DeviceInput(USLOSS_TERM_DEV, unit, &termResult);
 
-    if (debugflag2 && DEBUG2) {
-        USLOSS_Console("terminalHandler(): sending now from dev %d to mbox %d\n", dev, termBoxes[unit].mboxID);
-    }
+    // if (debugflag2 && DEBUG2) {
+    //     USLOSS_Console("terminalHandler(): sending now from dev %d to mbox %d value %s\n", dev, termBoxes[unit].mboxID, termResult);
+    // }
     MboxCondSend(termBoxes[unit].mboxID, &termResult, sizeof(termResult));
 
     if (result != USLOSS_DEV_OK) {
