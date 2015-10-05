@@ -105,14 +105,14 @@ int start1(char *arg)
     USLOSS_IntVec[USLOSS_SYSCALL_INT] = syscallHandler;
 
     // allocate mailboxes for interrupt handlers.  Etc... 
-    clockBox = MailBoxTable[MboxCreate(0, sizeof(long))];
+    clockBox = MailBoxTable[MboxCreate(0, sizeof(int))];
 
     for (int i = 0; i < USLOSS_DISK_UNITS; i++) {
-        diskBoxes[i] = MailBoxTable[MboxCreate(0, sizeof(long))];
+        diskBoxes[i] = MailBoxTable[MboxCreate(0, sizeof(int))];
     }
 
     for (int i = 0; i < USLOSS_TERM_UNITS; i++) {
-        termBoxes[i] = MailBoxTable[MboxCreate(0, sizeof(long))];
+        termBoxes[i] = MailBoxTable[MboxCreate(0, sizeof(int))];
     }
 
     // intialize sys_vec
@@ -884,7 +884,7 @@ int waitDevice(int type, int unit, int *status) {
 
     //notify p1.c that there is another process waiting on a device, then receive/block
     addProcess();
-    MboxReceive(mbox->mboxID, status, sizeof(long));
+    MboxReceive(mbox->mboxID, status, sizeof(int));
     releaseProcess();
 
     if (debugflag2 && DEBUG2) {
