@@ -946,7 +946,7 @@ static void diskHandler(int dev, void *arg) {
 
     // make sure our box still exists
     if (diskBoxes[unit].mboxID == -1) {
-        USLOSS_Console("Disk mailbox does not exist\n");
+        USLOSS_Console("Disk mailbox does not exist, unit = %d\n", unit);
         USLOSS_Halt(1); // might need to reutn instead
     }
 
@@ -971,8 +971,8 @@ static void terminalHandler(int dev, void *arg) {
     }
 
     // make sure our box still exists
-    if (diskBoxes[unit].mboxID == -1) {
-        USLOSS_Console("Disk mailbox does not exist\n");
+    if (termBoxes[unit].mboxID == -1) {
+        USLOSS_Console("Term mailbox does not exist, unit\n");
         USLOSS_Halt(1); // might need to reutn instead
     }
 
